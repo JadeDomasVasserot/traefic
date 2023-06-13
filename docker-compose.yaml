@@ -1,0 +1,60 @@
+version: '3'
+
+services:
+    traefik:
+        image: traefik:latest
+        container_name: traefik
+        restart: always
+        network_mode: host
+        privileged: true
+        environment:
+            CF_DNS_API_TOKEN: ${TRAEFIK_ACME_CLOUDFLARE_API_TOKEN:?}
+            CF_ZONE_API_TOKEN: ${TRAEFIK_ACME_CLOUDFLARE_API_TOKEN:?}
+        command:
+            # Global
+            - --global.sendanonymoususage=false
+            - --global.checknewversion=false
+            # Logs
+            #- --log.level=DEBUG
+            - --log.filepath=/logs/traefik.log
+            - --accesslog=true
+            - --accesslog.filepath=/logs/access.log
+            # Providers - Docker
+            - --providers.docker=true
+            - --providers.docker.exposedbydefault=false
+            # Providers - file
+            - --providers.file=true
+            - --providers.file.watch=true
+            - --providers.file.directory=/config
+            # Entrypoint - HTTP
+            - --entrypoints.http.address=:80
+            - --entrypoints.http.http.redirections.entrypoint.to=https
+            - --entrypoints.http.http.redirections.entrypoint.scheme=https
+            - --entrypoints.http.http.redirections.entrypoint.permanent=true
+            # Entrypoint - HTTPS
+            - --entrypoints.https.address=:443
+            - --entrypoints.https.http.tls=true
+            # Certresolvers - Let's encrypt
+            - --certificatesresolvers.certbot.acme.email=${TRAEFIK_ACME_EMAIL:?}
+            - --certificatesresolvers.certbot.acme.storage=/data/acme.json
+            - --certificatesresolvers.certbot.acme.dnschallenge.provider=cloudflare
+            - --certificatesresolvers.certbot.acme.caServer=https://acme-v02.api.letsencrypt.org/directory
+            #- --certificatesresolvers.certbot.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+            # Dashboard
+            - --api.dashboard=true
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - ./config/:/config/:ro
+            - ./data/:/data/:rw
+            - ./logs/:/logs/:rw
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.services.traefik.loadbalancer.server.port=443"
+            - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_DASHBOARD_DOMAIN:?}`)"
+            - "traefik.http.routers.traefik.service=api@internal"
+            - "traefik.http.routers.traefik.entrypoints=https"
+            - "traefik.http.routers.traefik.middlewares=traefik-auth@docker"
+            - "traefik.http.routers.traefik.tls.certresolver=certbot"
+
+            - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:?}"
+            - "traefik.http.middlewares.traefik-auth.basicauth.removeHeader=true"
